@@ -1,0 +1,65 @@
+# general settings
+name: Enhancement_SIFCNet_LIME
+model_type: ImageCleanModel
+scale: 1
+num_gpu: 1  # set num_gpu: 0 for cpu mode
+manual_seed: 100
+
+# dataset and data loader settings
+datasets:
+  val:
+    name: ValSet
+    type: SingleImageDataset
+    dataroot_gt: ~ #basicsr/data/LIME
+    dataroot_lq: basicsr/data/LIME
+    io_backend:
+      type: disk
+
+# network structures
+network_g:
+  type: SIFCNet
+  in_channels: 3
+  out_channels: 3
+  n_feat: 40
+  stage: 1
+  num_blocks: [1,2,2]
+
+
+# path
+path:
+  pretrain_network_g: basicsr/models/archs/best_psnr_26.02_232000.pth #prained_weights/LOL_v1.pth
+  strict_load_g: true
+  resume_state: ~
+  visualization: results/LIME #可视化结果的路径
+
+train:
+  mixing_augs:
+    mixup: False
+    #mixup_beta: 1.2
+    #use_identity: true
+
+# validation settings
+val:
+  window_size: 4
+  val_freq: !!float 1e3
+  save_img_path: results/LIME/LIMETest
+  save_img: true
+  rgb2bgr: true
+  use_image: true
+  max_minibatch: 8
+
+  metrics: {}
+
+# logging settings
+logger:
+  print_freq: 500 #500
+  save_checkpoint_freq: !!float 1e3
+  use_tb_logger: true
+  wandb:
+    project: low_light
+    resume_id: ~
+
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 29500

@@ -1,0 +1,152 @@
+# general settings
+name: Enhancement_SIFCNet_LOL_v1 #项目名称
+model_type: ImageCleanModel #模型类型
+scale: 1 #图像缩放比例，1表示不缩放
+num_gpu: 1  # set num_gpu: 0 for cpu mode 使用GPU数量，0表示CPU模式
+manual_seed: 100 # 随机种子，用于保证实验的可重复性。
+
+# dataset and data loader settings
+datasets: #定义数据集和数据加载器的设置
+  train: #训练集的设置
+    name: TrainSet # 训练集的名称
+    type: Dataset_PairedImage #数据集的类型，这里是配对图像数据集
+    dataroot_gt: basicsr/data/LOLv1/Train/target #高质量图像（目标）的路径
+    dataroot_lq: basicsr/data/LOLv1/Train/input #低质量图像（输入）的路径
+    geometric_augs: true #是否使用几何增强
+
+    filename_tmpl: '{}' #文件名模板
+    io_backend: # 输入输出后端，这里是磁盘
+      type: disk
+
+    # data loader
+    use_shuffle: true #是否在训练时打乱数据
+    num_worker_per_gpu: 0 #每个GPU上用于数据加载的进程数
+    batch_size_per_gpu: 4 #确保用单张图片训练  每个GPU的批量大小
+
+    ### -------------Progressive training--------------------------
+    # mini_batch_sizes: [8,5,4,2,1,1]             # Batch size per gpu   
+    # iters: [46000,32000,24000,18000,18000,12000]
+    # gt_size: 384   # Max patch size for progressive training
+    # gt_sizes: [128,160,192,256,320,384]  # Patch sizes for progressive training.
+    # ### ------------------------------------------------------------
+
+    ### ------- Training on single fixed-patch size 128x128---------
+    #训练图像尺寸
+    mini_batch_sizes: [4] #进行训练时的最小批量大小
+    iters: [10000] #只训练10轮 #训练的迭代次数（专门用于渐进式训练，时的阶段性迭代次数）
+    #使用固定的图像尺寸训练，那么这个参数iters是无效的。
+    gt_size: 128 #训练图像的目标尺寸
+    gt_sizes: [128] #训练图像的目标尺寸列表
+    ### ------------------------------------------------------------
+
+    dataset_enlarge_ratio: 1 #数据集扩增比例
+    prefetch_mode: ~ #预取模式
+
+  val: #验证集的设置
+    name: ValSet #验证集的名称
+    type: Dataset_PairedImage # 数据集的类型，这里是配对图像数据集
+    dataroot_gt: basicsr/data/LOLv1/Test/target # 高质量图像（目标）的路径
+    dataroot_lq: basicsr/data/LOLv1/Test/input #低质量图像（输入）的路径
+    io_backend: #输入输出后端，这里是磁盘
+      type: disk
+
+# network structures
+network_g: #定义生成器网络的结构
+  type: SIFCNet #网络的类型，这里是SIFCNet
+  in_channels: 3 #输入通道数，这里是3（RGB图像）
+  out_channels: 3 #输出通道数，这里是3（RGB图像）
+  n_feat: 40 #特征的数量
+  stage: 1 #网络的阶段
+  num_blocks: [1,2,2] # 每个阶段的块数量
+
+
+# path
+path: #定义路径相关设置
+  pretrain_network_g: basicsr/models/archs/~
+ #pretrained_weights/LOL_v1.pth #~  预训练的生成器网络权重路径
+  strict_load_g: true #是否严格加载生成器网络权重
+  resume_state: ~ # 恢复训练的状态路径
+  visualization: results/LOLv1xg #可视化结果的路径
+
+
+# training settings 训练参数
+train:
+  total_iter: 300000 #30000 245个epoch 总的训练迭代次数
+  warmup_iter: -1 # no warm up 热身迭代次数，这里是-1表示没有热身
+  use_grad_clip: true #是否使用梯度裁剪
+  results_dir: results/LOLv1xg  # 输出结果的目录 训练结果的保存目录
+
+  # Split 300k iterations into two cycles. 
+  # 1st cycle: fixed 3e-4 LR for 92k iters. 
+  # 2nd cycle: cosine annealing (3e-4 to 1e-6) for 208k iters.
+  scheduler: #学习率调度器的设置
+    type: CosineAnnealingRestartCyclicLR #调度器的类型，这里是余弦退火重启循环学习率
+    periods: [92000, 208000] #[100000, 100000, 102500] #[46000, 104000]    #每个周期的迭代次数
+    restart_weights: [1, 1] #[1,1] #重启权重
+    eta_mins: [0.0003,0.000001] #[3e-4, 1e-5, 1e-6] #[0.0003, 0.0002, 0.0001] #[0.0003,0.000001]   # 最小学习率
+
+  mixing_augs: #混合增强设置
+    mixup: true #是否使用mixup
+    mixup_beta: 1.2 # mixup的beta参数
+    use_identity: true #是否使用恒等变换
+  optim_g: #优化器设置
+    type: Adam # 优化器的类型，这里是Adam
+    lr: !!float 1e-4  #学习率 学习率减低，避免不稳定
+    # weight_decay: !!float 1e-4
+    betas: [0.9, 0.999]  #Adam优化器的beta参数
+  
+  # losses
+  pixel_opt: #像素级优化设置
+    type: L1Loss #损失函数的类型，这里是L1损失
+    loss_weight: 1 # 损失权重
+    reduction: mean #损失的约简方式
+  color_opt:
+    type: LabColorLoss
+    loss_weight: 0.1
+    reduction: mean
+  ssim_opt:
+    type: SSIMLoss
+    loss_weight: 0.1   # 你可以调，比如 0.05~0.3
+    reduction: mean
+    window_size: 11
+  #semantic_opt:
+    #type: SemanticPerceptualLoss
+    #loss_weight: 0.1
+    #reduction: mean
+    #in_channels: 3
+    #n_feat: 31
+
+# validation settings
+val: #定义验证设置
+  window_size: 4 # 窗口大小
+  val_freq: !!float 1e3 #!!float 1e3 #验证频率
+  save_img_path: results/LOLv1xg  # 添加这行  保存验证图像的路径
+  save_img: true #是否保存验证图像
+  rgb2bgr: true # 是否将RGB图像转换为BGR
+  use_image: true #false #是否使用图像进行验证
+  max_minibatch: 8 # 最大迷你批次
+
+
+
+  metrics: #验证指标设置
+    psnr: # metric name, can be arbitrary峰值信噪比指标设置
+      type: calculate_psnr #指标类型
+      crop_border: 0 #裁剪边界
+    ssim:
+      type: calculate_ssim
+      crop_border: 0 #裁剪边界
+      test_y_channel: false #是否测试Y通道
+
+# logging settings
+logger: #定义日志设置
+  print_freq: 100  #每次迭代都打印日志 打印日志的频率
+  save_checkpoint_freq: 1000  #5 次迭代就保存一次 保存检查点的频率
+  use_tb_logger: true #是否使用TensorBoard日志记录器
+  wandb:
+    project: low_light # 项目名称
+    resume_id: ~
+
+# dist training settings
+dist_params: #分布式训练设置
+  backend: nccl #分布式后端，这里是NCCL
+  port: 29500 #分布式训练的端口
