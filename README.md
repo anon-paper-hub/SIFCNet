@@ -30,11 +30,11 @@ Validation Dataset:[Google Drive](https://drive.google.com/file/d/1L-kqSQyrmMueB
 # Training and Testing
 ## Training
 To train the model, use the following command:
-```
+```python
 python  basicsr/train.py --opt Options/SIFCNet_LOL_v1.yml
 ```
 ## Testing
 To test the model, use the following command:
-```
+```python
 python  basicsr/test.py --opt Options/SIFCNet_LOL_v1.yml
 ```
