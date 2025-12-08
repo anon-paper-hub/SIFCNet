@@ -14,12 +14,17 @@ Install all necessary dependencies:
 pip install -r requirements.txt
 ```
 ## Prepare Datasets
-Download and prepare the training and validation datasets:
-Training Dataset: Download the training dataset and place it in basicsr/data/LOLv1/Train/
-Validation Dataset: Download the validation dataset and place it in basicsr/data/LOLv1/Test/
+Download and prepare the training and validation datasets:  
 
-Download Links:
-Training Dataset:[Google Drive](https://drive.google.com/file/d/1L-kqSQyrmMueBh_ziWoPFhfsAh50h20H/view?pli=1) 
+Training Dataset: Download the training dataset and place it in basicsr/data/LOLv1/Train/  
+
+Validation Dataset: Download the validation dataset and place it in basicsr/data/LOLv1/Test/  
+
+
+Download Links:  
+
+Training Dataset:[Google Drive](https://drive.google.com/file/d/1L-kqSQyrmMueBh_ziWoPFhfsAh50h20H/view?pli=1)   
+
 Validation Dataset:[Google Drive](https://drive.google.com/file/d/1L-kqSQyrmMueBh_ziWoPFhfsAh50h20H/view?pli=1)
 
 # Training and Testing
