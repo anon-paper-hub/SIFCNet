@@ -221,10 +221,8 @@ class FG_MSA(nn.Module):
             prior = self.sif(illu_fea_trans.permute(0,3,1,2), sem_fea_trans.permute(0,3,1,2))
         else:
             prior = self.sif(illu_fea_trans.permute(0,3,1,2), illu_fea_trans.permute(0,3,1,2))
-        # prior: [B, C, H, W] -> reshape为 [B, HW, C]
         guidance = prior.permute(0,2,3,1).reshape(b, h*w, c)
 
-        # === reshape q,k,v,guidance ===
         q, k, v, guidance = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=self.num_heads),
                                  (q_inp, k_inp, v_inp, guidance))
         v = v * guidance 
@@ -413,7 +411,7 @@ class SIFC_Single_Stage(nn.Module):
                                  num_blocks=num_blocks)
 
     def forward(self, img):
-        # img:        b,c=3,h,w  低光图像
+        # img:        b,c=3,h,w  
 
         # illu_fea:   b,c,h,w    Flu
         # illu_map:   b,c=3,h,w  Lbar
