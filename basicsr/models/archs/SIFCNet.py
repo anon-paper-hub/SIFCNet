@@ -71,7 +71,6 @@ def conv(in_channels, out_channels, kernel_size, bias=False, padding=1, stride=1
         in_channels, out_channels, kernel_size,
         padding=(kernel_size // 2), bias=bias, stride=stride)
 
-# input [bs,28,256,310]  output [bs, 28, 256, 256]
 def shift_back(inputs, step=2):
     [bs, nC, row, col] = inputs.shape
     down_sample = 256 // row
@@ -82,7 +81,6 @@ def shift_back(inputs, step=2):
             inputs[:, i, :, int(step * i):int(step * i) + out_col]
     return inputs[:, :, :, :out_col]
 
-# === 添加：Low模块（Haar小波低频） ===
 class Low(nn.Module):
     def __init__(self):
         super(Low, self).__init__()
@@ -92,24 +90,22 @@ class Low(nn.Module):
     def forward(self, x):
         return self.conv(x)
 
-#=======添加色彩偏移模块（预测网络加入在损坏恢复器前面输入）======
 class ColorNet(nn.Module):
     def __init__(self, in_channels=3, hidden_dim=32):
         super(ColorNet, self).__init__()
         self.net = nn.Sequential(
             nn.Conv2d(in_channels, hidden_dim, 3, padding=1),
             nn.ReLU(inplace=True),
-            nn.AdaptiveAvgPool2d(1),  # 全局颜色统计
-            nn.Conv2d(hidden_dim, in_channels, 1),  # 输出每通道偏移
-            nn.Tanh()  # 限制在 [-1, 1] 范围
+            nn.AdaptiveAvgPool2d(1),  
+            nn.Conv2d(hidden_dim, in_channels, 1),  
+            nn.Tanh()  
         )
 
     def forward(self, x):
-        shift = self.net(x)          # (B,3,1,1)
-        x_corrected = x + shift      # 广播加偏移
+        shift = self.net(x)          
+        x_corrected = x + shift      
         return x_corrected.clamp(0, 1)
 
-# === 新增语义特征提取模块 ===
 class SemanticExtractor(nn.Module):
     def __init__(self, in_channels=3, n_feat=31):
         super(SemanticExtractor, self).__init__()
@@ -130,7 +126,6 @@ class LFIE(nn.Module):
     def __init__(
             self, n_fea_middle, n_fea_in=4, n_fea_out=3):
         super(LFIE, self).__init__()
-        # === 添加：低频亮度提取模块 ===
         self.low_freq_extractor = Low()
         self.conv1 = nn.Conv2d(n_fea_in, n_fea_middle, kernel_size=1, bias=True)
         self.depth_conv = nn.Conv2d(
@@ -146,7 +141,6 @@ class LFIE(nn.Module):
 
         B, C, H, W = img.shape
 
-        # === 使用小波低频分量提取亮度图 ===
         with torch.no_grad():
             low = self.low_freq_extractor(img)  # B,3,H/2,W/2
             low_upsampled = F.interpolate(low, size=(H, W), mode='bilinear', align_corners=False)
@@ -158,10 +152,8 @@ class LFIE(nn.Module):
         illu_map = self.conv2(illu_fea)
         return illu_fea, illu_map
 
-#==修改FG_MSA: 增加 sem_fea 权重融合 V ===
 
 class SIF(nn.Module):
-    """简单FFN，用于SIF模块"""
     def __init__(self, dim, hidden_dim=None):
         super().__init__()
         hidden_dim = hidden_dim or 4*dim
@@ -174,7 +166,6 @@ class SIF(nn.Module):
         return self.net(x)
 
 class SIFModule(nn.Module):
-    """严格 CxC 通道注意力 + LayerNorm"""
     def __init__(self, dim):
         super(SEModule, self).__init__()
         self.dim = dim
@@ -190,15 +181,12 @@ class SIFModule(nn.Module):
         Q = self.Wq(sem_fea).view(B, C, H*W)
         V = self.Wv(illu_fea).view(B, C, H*W)
 
-        # LayerNorm 通道维
         K = self.norm(K.transpose(1,2)).transpose(1,2)
         Q = self.norm(Q.transpose(1,2)).transpose(1,2)
 
-        # 通道注意力 CxC
         Ab = torch.matmul(Q, K.transpose(1,2)) / math.sqrt(C)
         Ab = F.softmax(Ab, dim=-1)
 
-        # 加权 V
         V_out = torch.matmul(Ab, V) + V
         V_out = V_out.view(B, C, H, W)
         out = self.ffn(V_out)
@@ -220,7 +208,6 @@ class FG_MSA(nn.Module):
             nn.GELU(),
             nn.Conv2d(dim, dim, 3, 1, 1, bias=False, groups=dim),
         )
-        # SIF模块实例
         self.sif = SIFModule(dim)
 
     def forward(self, x_in, illu_fea_trans, sem_fea_trans=None):
@@ -230,7 +217,6 @@ class FG_MSA(nn.Module):
         k_inp = self.to_k(x)
         v_inp = self.to_v(x)
 
-        # === SIF融合先验特征 ===
         if sem_fea_trans is not None:
             prior = self.sif(illu_fea_trans.permute(0,3,1,2), sem_fea_trans.permute(0,3,1,2))
         else:
@@ -241,10 +227,8 @@ class FG_MSA(nn.Module):
         # === reshape q,k,v,guidance ===
         q, k, v, guidance = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=self.num_heads),
                                  (q_inp, k_inp, v_inp, guidance))
-        # 加权 V
-        v = v * guidance  # 保证维度对齐 (b, heads, n, d)
+        v = v * guidance 
 
-        # Attention计算
         q = q.transpose(-2,-1)
         k = k.transpose(-2,-1)
         v = v.transpose(-2,-1)
@@ -282,7 +266,6 @@ class FeedForward(nn.Module):
         out = self.net(x.permute(0, 3, 1, 2).contiguous())
         return out.permute(0, 2, 3, 1)
 
-#=== 修改 MGAM forward: 传入 sem_fea ===
 class MGAM(nn.Module):
     def __init__(
             self,
@@ -290,12 +273,11 @@ class MGAM(nn.Module):
             dim_head=64,
             heads=8,
             num_blocks=2,
-            illu_ch=None,   # === 新增：该层 illumination 特征通道数（= dim_level）
-            sem_ch=None     # === 新增：语义特征通道数（= n_feat）
+            illu_ch=None,   
+            sem_ch=None    
     ):
         super().__init__()
         self.blocks = nn.ModuleList([])
-        # === 新增：语义特征通道对齐（学习式 1x1 Conv）===
         if (sem_ch is not None) and (illu_ch is not None) and (sem_ch != illu_ch):
             self.sem_align = nn.Conv2d(sem_ch, illu_ch, kernel_size=1, bias=False)
         else:
@@ -314,17 +296,14 @@ class MGAM(nn.Module):
         sem_fea: [b,c,h,w] or None
         return out: [b,c,h,w]
         """
-        # --- 空间尺寸先对齐到 illu_fea ---
         if sem_fea is not None:
             if sem_fea.shape[-2:] != illu_fea.shape[-2:]:
                 sem_fea = F.interpolate(
                     sem_fea, size=illu_fea.shape[-2:], mode='bilinear', align_corners=False
                 )
-            # --- 通道数学习式对齐 ---
             if self.sem_align is not None:
                 sem_fea = self.sem_align(sem_fea)
 
-        # --- 转成 [b,h,w,c] ---
         x_hw = x.permute(0, 2, 3, 1)
         illu_hw = illu_fea.permute(0, 2, 3, 1)
         sem_hw  = sem_fea.permute(0, 2, 3, 1) if sem_fea is not None else None
@@ -340,14 +319,12 @@ class MGAM(nn.Module):
         out = x_hw.permute(0, 3, 1, 2)  # [b, c, h, w]
         return out
 
-# Denoiser（接入 IGAB 卷积投影）
 class Denoiser(nn.Module):
     def __init__(self, in_dim=3, out_dim=3, dim=31, level=2, num_blocks=[2, 4, 4]):
         super(Denoiser, self).__init__()
         self.dim = dim
         self.level = level
         self.embedding = nn.Conv2d(in_dim, self.dim, 3, 1, 1, bias=False)
-# =======新增：语义特征融合====
         self.sem_proj = nn.Conv2d(dim, dim, 1, 1, bias=False)
         self.encoder_layers = nn.ModuleList([])
         dim_level = dim
@@ -390,45 +367,38 @@ class Denoiser(nn.Module):
 
     def forward(self, x, illu_fea, sem_fea):
         """
-        x:          [b,c,h,w]         x是feature, 不是image
+        x:          [b,c,h,w]         
         illu_fea:   [b,c,h,w]
         return out: [b,c,h,w]
         """
 
         fea = self.embedding(x)
-# === 改动：加入语义特征 ===
         if sem_fea.shape[-2:] != fea.shape[-2:]:
             sem_fea = F.interpolate(sem_fea, size=fea.shape[-2:], mode='bilinear', align_corners=False)
         fea = fea + self.sem_proj(sem_fea)
 
         fea_encoder = []
         illu_fea_list = []
-        sem_fea_list = []   # === 新增：存各尺度 sem_fea ===
-# === 修改：编码阶段，MGAM 传入 sem_fea；并对 illu/sem 同步下采样 ===
+        sem_fea_list = []  
         for (AttnBlock, FeaDownSample, IlluFeaDownsample) in self.encoder_layers:
-            # 空间尺寸对齐 sem_fea -> illu_fea
             if sem_fea.shape[-2:] != illu_fea.shape[-2:]:
                 sem_fea = F.interpolate(sem_fea, size=illu_fea.shape[-2:], mode='bilinear', align_corners=False)
-            fea = AttnBlock(fea, illu_fea, sem_fea)# 传 sem_fea 进入MGAM (FG_MSA 内做 V 融合)
+            fea = AttnBlock(fea, illu_fea, sem_fea)
             fea_encoder.append(fea)
             illu_fea_list.append(illu_fea)
             sem_fea_list.append(sem_fea)
 
-            # 下采样到下一层
             fea = FeaDownSample(fea)
             illu_fea = IlluFeaDownsample(illu_fea)
-            # 语义特征用 size= 对齐到新的 illu_fea 尺寸
             sem_fea = F.interpolate(sem_fea, size=illu_fea.shape[-2:], mode='bilinear', align_corners=False)
-# === 修改：BottleNeck 也带上 sem_fea ===
         fea = self.bottleneck(fea, illu_fea, sem_fea)
-# === 修改：解码阶段，从缓存取回对应尺度的 illu/sem 输入 MGAM ===
         for i, (FeaUpSample, Fution, LeWinBlcok) in enumerate(self.decoder_layers):
             fea = FeaUpSample(fea)
             fea = Fution(
                 torch.cat([fea, fea_encoder[self.level - 1 - i]], dim=1))
             illu_fea = illu_fea_list[self.level - 1 - i]
             sem_fea  = sem_fea_list[self.level - 1 - i]
-            fea = LeWinBlcok(fea, illu_fea, sem_fea)  # === 传 sem_fea 进入 MGAM ===
+            fea = LeWinBlcok(fea, illu_fea, sem_fea)  
 
         out = self.mapping(fea) + x
         return out
@@ -438,7 +408,7 @@ class SIFC_Single_Stage(nn.Module):
         super(SIFC_Stage, self).__init__()
         self.color_corrector = ColorNet(in_channels)
         self.estimator = LFIE(n_feat)
-        self.semantic_extractor = SemanticExtractor(in_channels, n_feat)  # === 新增语义模块 ===
+        self.semantic_extractor = SemanticExtractor(in_channels, n_feat)  
         self.denoiser = Denoiser(in_dim=in_channels, out_dim=out_channels, dim=n_feat, level=level,
                                  num_blocks=num_blocks)
 
@@ -451,7 +421,6 @@ class SIFC_Single_Stage(nn.Module):
         illu_fea, illu_map = self.estimator(img)
         input_img = img * illu_map + img
         corrected_img = self.color_corrector(input_img)
-#=== 改动：语义特征提取 ===
         B, C, H, W = img.shape
         sem_fea = self.semantic_extractor(input_img, target_size=(H, W))
         output_img = self.denoiser(corrected_img, illu_fea, sem_fea)
